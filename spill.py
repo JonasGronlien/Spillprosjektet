@@ -1,12 +1,11 @@
 import pygame 
+import random
 
 pygame.init()
 
 #1 oppsett
 BREDDE = 800
 HOYDE = int(BREDDE * 0.8) 
-
-font = pygame.font.SysFont("Arial", 24)
 
 skjerm = pygame.display.set_mode((BREDDE, HOYDE))
 pygame.display.set_caption("skytespill")
@@ -40,6 +39,16 @@ item_boxes = {
 #definerer farger  
 BG = (144, 201, 120)
 RED = (255, 0, 0)
+WHITE = (255, 255, 255)
+GREEN = (0, 255, 0)
+BLACK = (0, 0, 0)
+
+#font 
+font = pygame.font.SysFont("Futura", 30)
+
+def draw_text(text, font, text_col, x, y):
+     img = font.render(text, True, text_col)
+     skjerm.blit(img, (x, y))
 
 def draw_bg():
     skjerm.fill(BG)
@@ -68,6 +77,11 @@ class soldat(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.center = (x, y)
         self.scale = scale 
+        #ai spesefike variabler 
+        self.move_counter  = 0
+        self.vision = pygame.Rect(0, 0, 150, 20)
+        self.idling = False 
+        self.idling_counter = 0
 
     
     def update(self):
@@ -105,7 +119,7 @@ class soldat(pygame.sprite.Sprite):
             dy += self.vel_y
 
             # kollisjon med bakken 
-            if self.rect.bottom + dy > 400:
+            if self.rect.bottom + dy > 400  :
                 dy = 400 - self.rect.bottom
                 self.in_air = False
 
@@ -117,11 +131,40 @@ class soldat(pygame.sprite.Sprite):
     def shoot(self):
         if self.shoot_cooldown == 0 and self.ammo > 0:
             self.shoot_cooldown = 20
-            bullet = kule(self.rect.centerx + (0.6 * self.rect.size[0]* self.direction), self.rect.centery, self.direction)
+            bullet = kule(self.rect.centerx + (0.75 * self.rect.size[0]* self.direction), self.rect.centery, self.direction)
             kule_group.add(bullet)
             #reduserer ammo
             self.ammo -= 1 
+    
+    def ai(self):
+        if self.alive and spiller.alive:
+            if not self.idling and random.randint(1, 200) == 1:
+                self.idling = True
+                self.idling_counter = 50
+            #sjekker når ai er nærme spiler 
+            if self.vision.colliderect(spiller.rect):
+                 #slutt å løpe 
+                 self.idling = True 
+                 #skyt 
+                 self.shoot()
+            if not self.idling:
+                ai_moving_right = self.direction == 1
+                ai_moving_left = not ai_moving_right
+                self.move(ai_moving_left, ai_moving_right)
+                self.move_counter += 1
+                #fiende ser spiller 
+                self.vision.center = (self.rect.centerx + 75 * self.direction, self.rect.centery)
 
+                if self.move_counter > TILE_SIZE:
+                    self.direction *= -1
+                    self.move_counter = 0   
+            else:
+                self.idling_counter -= 1
+                if self.idling_counter <= 0:
+                    self.idling = False
+                    self.idling_counter = 0
+
+                          
     def check_alive(self):
         global poeng
         if self.health <= 0:
@@ -138,18 +181,50 @@ class soldat(pygame.sprite.Sprite):
 
 
     def draw(self):
-        skjerm.blit(pygame.transform.flip(self.image, self. flip, False), self.rect)
+        skjerm.blit(pygame.transform.flip(self.image, self. flip, False), self.rect)    
 
 
-class itemBox(pygame.sprite.Sprite):
-    def __init__(self, item_type, x, y,):
-        pygame.sprite.Sprite.__init__(self)
-        self.item_type = item_type
-        self.image = item_boxes[self.item_type]
-        self.rect = self.image.get_rect()
-        self.rect.midtop = (x + TILE_SIZE // 2, y + (TILE_SIZE - self.image.get_height()))
+class ItemBox(pygame.sprite.Sprite):
+	def __init__(self, item_type, x, y):
+		pygame.sprite.Sprite.__init__(self)
+		self.item_type = item_type
+		self.image = item_boxes[self.item_type]
+		self.rect = self.image.get_rect()
+		self.rect.midtop = (x + TILE_SIZE // 2, y + (TILE_SIZE - self.image.get_height()))
 
 
+	def update(self):
+		#check if the player has picked up the box
+		if pygame.sprite.collide_rect(self, spiller):
+			#check what kind of box it was
+			if self.item_type == 'health':
+				spiller.health += 25
+				if spiller.health > spiller.max_health:
+					spiller.health = spiller.max_health
+			elif self.item_type == 'ammo':
+				spiller.ammo += 15
+			#delete the item box
+			self.kill()
+               
+
+class HealthBar():
+	def __init__(self, x, y, health, max_health):
+		self.x = x
+		self.y = y
+		self.health = health
+		self.max_health = max_health
+
+	def draw(self, health):
+          #opptaterer med ny health 
+          self.health = health 
+          #regner health ratio 
+          ratio = self.health / self.max_health
+          pygame.draw.rect(skjerm, BLACK, (self.x - 2, self.y - 2, 154, 24) )
+          pygame.draw.rect(skjerm, RED, (self.x, self.y, 150, 20) )
+          pygame.draw.rect(skjerm, GREEN, (self.x, self.y, 150 * ratio, 20)  )
+
+          
+     
 class kule(pygame.sprite.Sprite):
     def __init__(self, x, y, direction):
         pygame.sprite.Sprite.__init__(self)
@@ -182,14 +257,18 @@ fiende_group = pygame.sprite.Group()
 item_box_group = pygame.sprite.Group()
 
 #lager item boxes
-item_box = itemBox('health', 100, 300)
+item_box = ItemBox('health', 100, 360)
 item_box_group.add(item_box)
-item_box = itemBox('ammo', 100, 300)
+item_box = ItemBox('ammo', 400, 360)
 item_box_group.add(item_box)
 
-spiller = soldat('player',200, 200, 3, 5, 20)
-fiende = soldat('enemy',400, 300, 3, 5, 20)
-fiende2 = soldat('enemy',600, 300, 3, 5, 20)
+
+spiller = soldat('player',200, 200, 1.65, 5, 20)
+health_bar = HealthBar(10, 10, spiller.health, spiller.health)
+
+
+fiende = soldat('enemy',400, 200, 1.65, 2, 20)
+fiende2 = soldat('enemy',300, 200, 1.65, 2, 20)
 fiende_group.add(fiende)
 fiende_group.add(fiende2)
 
@@ -203,21 +282,32 @@ while run:
     clock.tick(FPS)
 
     draw_bg()
+    #vis spiller health
+    health_bar.draw(spiller.health)
+    #hvis ammo
+    draw_text('AMMO: ', font, WHITE, 10, 35)
+    for x in range(spiller.ammo):
+         skjerm.blit(bullet_img, (90 + (x * 10), 40))
 
     spiller.update()
     spiller.draw()
 
     for fiende in fiende_group:
+        fiende.ai()
         fiende.check_alive()
         fiende.draw()
+    
+    fiende_group.update 
 
-    poeng_sum = font.render("Poeng = " + str(poeng), True, "black")
-    skjerm.blit(poeng_sum, (600, 100))
+    poeng_sum = font.render("POENG : " + str(poeng), True, WHITE)
+    skjerm.blit(poeng_sum, (10, 60))
 
     kule_group.update()
     kule_group.draw(skjerm)
+    item_box_group.update()
+    item_box_group.draw(skjerm)
 
-    #opptaterer spiller action
+    #opptaterer spiller action  
     if spiller.alive:
         #shoot bullets 
         if shoot:
@@ -250,6 +340,7 @@ while run:
             if event.key == pygame.K_SPACE:
                 shoot = False
 
+    spiller.draw()
 
     pygame.display.flip()
 
